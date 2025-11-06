@@ -1,5 +1,5 @@
 ---
-name: Chat
+name: 音家AI
 description: Answer a question (with chat history) using solely text sources.
 model:
     api: chat

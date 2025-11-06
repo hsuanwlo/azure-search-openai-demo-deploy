@@ -10,7 +10,8 @@ services:
     project: ./app/backend
     language: py
     # Please check docs/azure_container_apps.md for more information on how to deploy to Azure Container Apps
-    host: containerapp
+    host: appservice
+    name: soundhouse-rag-backend
     docker:
       remoteBuild: true
     # Please check docs/azure_app_service.md for more information on how to deploy to Azure App Service
