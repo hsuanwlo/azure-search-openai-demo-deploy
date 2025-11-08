@@ -1,8 +1,12 @@
 import base64
+import os
+import re
 from abc import ABC
 from collections.abc import AsyncGenerator, Awaitable
 from dataclasses import dataclass, field
 from typing import Any, Optional, TypedDict, cast
+
+from urllib.parse import unquote
 
 from azure.search.documents.agent.aio import KnowledgeAgentRetrievalClient
 from azure.search.documents.agent.models import (
@@ -81,6 +85,12 @@ class Document:
 
 
 @dataclass
+class Citation:
+    display_text: str
+    path: str
+
+
+@dataclass
 class ThoughtStep:
     title: str
     description: Optional[Any]
@@ -95,7 +105,7 @@ class ThoughtStep:
 class DataPoints:
     text: Optional[list[str]] = None
     images: Optional[list] = None
-    citations: Optional[list[str]] = None
+    citations: Optional[list[Citation]] = None
 
 
 @dataclass
@@ -378,7 +388,7 @@ class Approach(ABC):
             user_oid: Optional user object id for per-user storage access (ADLS scenarios).
 
         Returns:
-            DataPoints: with text (list[str]), images (list[str - base64 data URI]), citations (list[str]).
+            DataPoints: with text (list[str]), images (list[str - base64 data URI]), citations (list[Citation]).
         """
 
         def clean_source(s: str) -> str:
@@ -386,15 +396,15 @@ class Approach(ABC):
             s = s.replace(":::", "&#58;&#58;&#58;")  # escape DocFX/markdown triple colons
             return s
 
-        citations = []
+        citations: list[Citation] = []
         text_sources = []
         image_sources = []
         seen_urls = set()
 
         for doc in results:
             # Get the citation for the source page
-            citation = self.get_citation(doc.sourcepage)
-            if citation not in citations:
+            citation = self.get_citation(doc.sourcepage, doc.sourcefile)
+            if (citation.display_text or citation.path) and citation not in citations:
                 citations.append(citation)
 
             # If semantic captions are used, extract captions; otherwise, use content
@@ -403,7 +413,8 @@ class Approach(ABC):
                     cleaned = clean_source(" . ".join([cast(str, c.text) for c in doc.captions]))
                 else:
                     cleaned = clean_source(doc.content or "")
-                text_sources.append(f"{citation}: {cleaned}")
+                display_label = citation.display_text or citation.path or "Source"
+                text_sources.append(f"{display_label}: {cleaned}")
 
             if download_image_sources and hasattr(doc, "images") and doc.images:
                 for img in doc.images:
@@ -414,16 +425,106 @@ class Approach(ABC):
                     url = await self.download_blob_as_base64(img["url"], user_oid=user_oid)
                     if url:
                         image_sources.append(url)
-                    citations.append(self.get_image_citation(doc.sourcepage or "", img["url"]))
+                    image_citation = self.get_image_citation(
+                        doc.sourcepage or "", img["url"], doc.sourcefile
+                    )
+                    if (image_citation.display_text or image_citation.path) and image_citation not in citations:
+                        citations.append(image_citation)
         return DataPoints(text=text_sources, images=image_sources, citations=citations)
 
-    def get_citation(self, sourcepage: Optional[str]):
-        return sourcepage or ""
+    _FILE_TYPE_TOKENS = {
+        "csv",
+        "doc",
+        "docx",
+        "html",
+        "json",
+        "md",
+        "pdf",
+        "ppt",
+        "pptx",
+        "txt",
+        "xlsx",
+    }
 
-    def get_image_citation(self, sourcepage: Optional[str], image_url: str):
-        sourcepage_citation = self.get_citation(sourcepage)
+    def get_citation(self, sourcepage: Optional[str], sourcefile: Optional[str] = None) -> Citation:
+        if not sourcepage and not sourcefile:
+            return Citation(display_text="", path="")
+
+        decoded_sourcepage = unquote(sourcepage) if sourcepage else ""
+        page_suffix = ""
+        base_from_sourcepage = ""
+        fragment = ""
+        if decoded_sourcepage:
+            base_from_sourcepage, _, fragment = decoded_sourcepage.partition("#")
+            if fragment:
+                if fragment.lower().startswith("page="):
+                    page_number = fragment.split("=", 1)[1]
+                    if page_number:
+                        page_suffix = f" (Page {page_number})"
+                else:
+                    page_suffix = f" ({fragment})"
+
+        candidate_path = sourcefile or base_from_sourcepage or decoded_sourcepage or ""
+        candidate_path = unquote(candidate_path) if candidate_path else ""
+        base_name = os.path.basename(candidate_path) if candidate_path else ""
+        stem, _ = os.path.splitext(base_name)
+        friendly_target = stem or base_name or candidate_path or decoded_sourcepage
+        friendly_name = self._prettify_citation_name(friendly_target)
+
+        if not friendly_name:
+            fallback_source = decoded_sourcepage or (unquote(sourcefile) if sourcefile else "")
+            friendly_name = os.path.basename(fallback_source) or fallback_source
+
+        display_text = f"{friendly_name}{page_suffix}".strip()
+        path_source = decoded_sourcepage or (unquote(sourcefile) if sourcefile else "")
+
+        if not display_text:
+            display_text = path_source
+
+        return Citation(display_text=display_text or "", path=path_source or candidate_path or "")
+
+    def get_image_citation(
+        self, sourcepage: Optional[str], image_url: str, sourcefile: Optional[str] = None
+    ) -> Citation:
+        base_citation = self.get_citation(sourcepage, sourcefile)
         image_filename = image_url.split("/")[-1]
-        return f"{sourcepage_citation}({image_filename})"
+        display_label = base_citation.display_text or base_citation.path
+        if display_label:
+            display_text = f"{display_label} ({image_filename})"
+        else:
+            display_text = image_filename
+        path = base_citation.path or image_filename
+        return Citation(display_text=display_text, path=path)
+
+    @classmethod
+    def _prettify_citation_name(cls, name: str) -> str:
+        if not name:
+            return ""
+
+        spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
+        cleaned = re.sub(r"[._-]+", " ", spaced)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if not cleaned:
+            return ""
+
+        tokens = [token for token in cleaned.split(" ") if token]
+        filtered_tokens = [token for token in tokens if token.lower() not in cls._FILE_TYPE_TOKENS]
+        if filtered_tokens:
+            tokens = filtered_tokens
+
+        if not tokens:
+            return ""
+
+        processed_tokens: list[str] = []
+        for token in tokens:
+            if token.isupper() or token.isnumeric():
+                processed_tokens.append(token)
+            elif len(token) == 1:
+                processed_tokens.append(token.upper())
+            else:
+                processed_tokens.append(token[0].upper() + token[1:])
+
+        return " ".join(processed_tokens)
 
     async def download_blob_as_base64(self, blob_url: str, user_oid: Optional[str] = None) -> Optional[str]:
         """

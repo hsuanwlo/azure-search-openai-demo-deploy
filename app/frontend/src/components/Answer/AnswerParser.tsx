@@ -4,11 +4,36 @@ import { ChatAppResponse, getCitationFilePath } from "../../api";
 type HtmlParsedAnswer = {
     answerHtml: string;
     citations: string[];
+    citationPaths: Record<string, string>;
 };
 
 export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean, onCitationClicked: (citationFilePath: string) => void): HtmlParsedAnswer {
-    const possibleCitations = answer.context.data_points.citations || [];
+    const citationEntries = answer.context.data_points?.citations || [];
+    const citationPathMap = new Map<string, string>();
+
+    citationEntries.forEach(entry => {
+        if (!entry) {
+            return;
+        }
+
+        if (typeof entry === "string") {
+            citationPathMap.set(entry, entry);
+            return;
+        }
+
+        const display = (entry as any).display_text ?? "";
+        const path = (entry as any).path ?? "";
+
+        if (display) {
+            citationPathMap.set(display, path || display);
+        } else if (path) {
+            citationPathMap.set(path, path);
+        }
+    });
+
+    const possibleCitations = Array.from(citationPathMap.keys());
     const citations: string[] = [];
+    const citationPaths: Record<string, string> = {};
 
     // Trim any whitespace from the end of the answer after removing follow-up questions
     let parsedAnswer = answer.message.content.trim();
@@ -51,10 +76,17 @@ export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean,
                 citationIndex = citations.length;
             }
 
-            const path = getCitationFilePath(part);
+            const targetPath = citationPathMap.get(part);
+
+            if (!targetPath) {
+                return `[${part}]`;
+            }
+
+            citationPaths[part] = targetPath;
+            const backendPath = getCitationFilePath(targetPath);
 
             return renderToStaticMarkup(
-                <a className="supContainer" title={part} onClick={() => onCitationClicked(path)}>
+                <a className="supContainer" title={part} onClick={() => onCitationClicked(backendPath)}>
                     <sup>{citationIndex}</sup>
                 </a>
             );
@@ -63,6 +95,7 @@ export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean,
 
     return {
         answerHtml: fragments.join(""),
-        citations
+        citations,
+        citationPaths
     };
 }

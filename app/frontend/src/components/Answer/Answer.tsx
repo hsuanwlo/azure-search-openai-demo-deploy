@@ -43,7 +43,10 @@ export const Answer = ({
     showSpeechOutputBrowser
 }: Props) => {
     const followupQuestions = answer.context?.followup_questions;
-    const parsedAnswer = useMemo(() => parseAnswerToHtml(answer, isStreaming, onCitationClicked), [answer]);
+    const parsedAnswer = useMemo(
+        () => parseAnswerToHtml(answer, isStreaming, onCitationClicked),
+        [answer, isStreaming, onCitationClicked]
+    );
     const { t } = useTranslation();
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
@@ -109,11 +112,17 @@ export const Answer = ({
                     <Stack horizontal wrap tokens={{ childrenGap: 5 }}>
                         <span className={styles.citationLearnMore}>{t("citationWithColon")}</span>
                         {parsedAnswer.citations.map((x, i) => {
-                            const path = getCitationFilePath(x);
+                            const rawPath = parsedAnswer.citationPaths[x] || x;
+                            const backendPath = getCitationFilePath(rawPath);
                             // Strip out the image filename in parentheses if it exists
-                            const strippedPath = path.replace(/\([^)]*\)$/, "");
+                            const strippedPath = backendPath.replace(/\([^)]*\)$/, "");
                             return (
-                                <a key={i} className={styles.citation} title={x} onClick={() => onCitationClicked(strippedPath)}>
+                                <a
+                                    key={i}
+                                    className={styles.citation}
+                                    title={x}
+                                    onClick={() => onCitationClicked(strippedPath)}
+                                >
                                     {`${++i}. ${x}`}
                                 </a>
                             );

@@ -41,10 +41,15 @@ export type Thoughts = {
     props?: { [key: string]: any };
 };
 
+export type Citation = {
+    display_text: string;
+    path: string;
+};
+
 export type DataPoints = {
     text: string[];
     images: string[];
-    citations: string[];
+    citations: Citation[];
 };
 
 export type ResponseContext = {
