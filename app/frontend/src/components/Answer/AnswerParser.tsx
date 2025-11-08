@@ -21,8 +21,11 @@ export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean,
             return;
         }
 
-        const display = (entry as any).display_text ?? "";
-        const path = (entry as any).path ?? "";
+        const rawDisplay = (entry as any).display_text;
+        const rawPath = (entry as any).path;
+
+        const display = typeof rawDisplay === "string" ? rawDisplay : undefined;
+        const path = typeof rawPath === "string" ? rawPath : undefined;
 
         if (display) {
             citationPathMap.set(display, path || display);
