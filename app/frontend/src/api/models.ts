@@ -49,7 +49,7 @@ export type Citation = {
 export type DataPoints = {
     text: string[];
     images: string[];
-    citations: Citation[];
+    citations?: Citation[] | null;
 };
 
 export type ResponseContext = {

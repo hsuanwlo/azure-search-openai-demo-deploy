@@ -31,7 +31,9 @@ export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean,
         }
     });
 
-    const possibleCitations = Array.from(citationPathMap.keys());
+    const possibleCitations = Array.from(citationPathMap.keys()).filter(
+        (citationKey): citationKey is string => typeof citationKey === "string" && citationKey.length > 0
+    );
     const citations: string[] = [];
     const citationPaths: Record<string, string> = {};
 
@@ -61,32 +63,35 @@ export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean,
         } else {
             let citationIndex: number;
 
-            const isValidCitation = possibleCitations.some(citation => {
-                return citation.startsWith(part);
+            const normalizedPart = part.trim();
+            const matchingCitation = possibleCitations.find(citation => {
+                return citation.startsWith(normalizedPart) || normalizedPart.startsWith(citation);
             });
 
-            if (!isValidCitation) {
+            if (!matchingCitation) {
                 return `[${part}]`;
             }
 
-            if (citations.indexOf(part) !== -1) {
-                citationIndex = citations.indexOf(part) + 1;
+            const citationLabel = normalizedPart || part;
+
+            if (citations.indexOf(citationLabel) !== -1) {
+                citationIndex = citations.indexOf(citationLabel) + 1;
             } else {
-                citations.push(part);
+                citations.push(citationLabel);
                 citationIndex = citations.length;
             }
 
-            const targetPath = citationPathMap.get(part);
+            const targetPath = citationPathMap.get(matchingCitation);
 
             if (!targetPath) {
                 return `[${part}]`;
             }
 
-            citationPaths[part] = targetPath;
+            citationPaths[citationLabel] = targetPath;
             const backendPath = getCitationFilePath(targetPath);
 
             return renderToStaticMarkup(
-                <a className="supContainer" title={part} onClick={() => onCitationClicked(backendPath)}>
+                <a className="supContainer" title={citationLabel} onClick={() => onCitationClicked(backendPath)}>
                     <sup>{citationIndex}</sup>
                 </a>
             );

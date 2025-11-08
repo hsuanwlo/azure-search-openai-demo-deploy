@@ -79,6 +79,10 @@ export async function getSpeechApi(text: string): Promise<string | null> {
 }
 
 export function getCitationFilePath(citation: string): string {
+    if (!citation) {
+        return `${BACKEND_URI}/content/`;
+    }
+
     const trimmedCitation = citation.trim();
     const trailingParentheses = trimmedCitation.match(/\s*\(([^)]*)\)\s*$/);
     let cleanedCitation = trimmedCitation;
