@@ -71,26 +71,6 @@ export const Answer = ({
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
 
-    const scrubJsonSegments = useCallback((text: string) => {
-        if (!text) {
-            return text;
-        }
-
-        const withoutJsonTokens = text
-            .replace(/\S*\.json\S*/gi, "")
-            .replace(/\s{2,}/g, " ")
-            .trim();
-
-        if (withoutJsonTokens) {
-            return withoutJsonTokens;
-        }
-
-        const withoutJsonExtension = text.replace(/\.json/gi, "").replace(/\s{2,}/g, " ")
-            .trim();
-
-        return withoutJsonExtension || text;
-    }, []);
-
     useEffect(() => {
         let isActive = true;
         const abortController = new AbortController();
@@ -284,9 +264,8 @@ export const Answer = ({
                             const citationPath = getCitationFilePath(x);
                             const strippedPath = citationPath.replace(/\([^)]*\)$/, "");
                             const linkText = citationLinks[x];
-                            const fallbackText = scrubJsonSegments(x);
-                            const displayText = linkText ?? fallbackText;
-                            const titleText = linkText ?? fallbackText;
+                            const displayText = linkText ?? x;
+                            const titleText = linkText ?? x;
 
                             return (
                                 <a
