@@ -71,6 +71,26 @@ export const Answer = ({
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
 
+    const scrubJsonSegments = useCallback((text: string) => {
+        if (!text) {
+            return text;
+        }
+
+        const withoutJsonTokens = text
+            .replace(/\S*\.json\S*/gi, "")
+            .replace(/\s{2,}/g, " ")
+            .trim();
+
+        if (withoutJsonTokens) {
+            return withoutJsonTokens;
+        }
+
+        const withoutJsonExtension = text.replace(/\.json/gi, "").replace(/\s{2,}/g, " ")
+            .trim();
+
+        return withoutJsonExtension || text;
+    }, []);
+
     useEffect(() => {
         let isActive = true;
         const abortController = new AbortController();
@@ -263,13 +283,16 @@ export const Answer = ({
                             const displayNumber = i + 1;
                             const citationPath = getCitationFilePath(x);
                             const strippedPath = citationPath.replace(/\([^)]*\)$/, "");
-                            const displayText = citationLinks[x] ?? x;
+                            const linkText = citationLinks[x];
+                            const fallbackText = scrubJsonSegments(x);
+                            const displayText = linkText ?? fallbackText;
+                            const titleText = linkText ?? fallbackText;
 
                             return (
                                 <a
                                     key={`${x}-${i}`}
                                     className={styles.citation}
-                                    title={displayText}
+                                    title={titleText}
                                     onClick={() => handleCitationClick(x, strippedPath)}
                                 >
                                     {`${displayNumber}. ${displayText}`}
