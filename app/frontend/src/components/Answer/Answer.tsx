@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Stack, IconButton } from "@fluentui/react";
 import { useTranslation } from "react-i18next";
 import DOMPurify from "dompurify";
@@ -43,10 +43,140 @@ export const Answer = ({
     showSpeechOutputBrowser
 }: Props) => {
     const followupQuestions = answer.context?.followup_questions;
-    const parsedAnswer = useMemo(() => parseAnswerToHtml(answer, isStreaming, onCitationClicked), [answer]);
+    const [citationLinks, setCitationLinks] = useState<Record<string, string>>({});
+
+    const handleCitationClick = useCallback(
+        (citation: string, citationPath: string) => {
+            const citationUrl = citationLinks[citation];
+
+            if (citationUrl) {
+                window.open(citationUrl, "_blank", "noopener,noreferrer");
+                return;
+            }
+
+            onCitationClicked(citationPath);
+        },
+        [citationLinks, onCitationClicked]
+    );
+
+    const parsedAnswer = useMemo(
+        () => parseAnswerToHtml(answer, isStreaming, handleCitationClick),
+        [answer, handleCitationClick, isStreaming]
+    );
     const { t } = useTranslation();
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        let isActive = true;
+        const abortController = new AbortController();
+
+        const extractUrlFromJson = (data: any): string | undefined => {
+            if (!data) {
+                return undefined;
+            }
+
+            if (typeof data === "string") {
+                try {
+                    const parsed = JSON.parse(data);
+                    return extractUrlFromJson(parsed);
+                } catch (err) {
+                    return /^https?:\/\//i.test(data.trim()) ? data.trim() : undefined;
+                }
+            }
+
+            if (Array.isArray(data)) {
+                for (const item of data) {
+                    const url = extractUrlFromJson(item);
+                    if (url) {
+                        return url;
+                    }
+                }
+                return undefined;
+            }
+
+            if (typeof data === "object") {
+                for (const [key, value] of Object.entries(data)) {
+                    if (typeof value === "string" && key.toLowerCase() === "url" && /^https?:\/\//i.test(value.trim())) {
+                        return value.trim();
+                    }
+
+                    const nestedUrl = extractUrlFromJson(value);
+                    if (nestedUrl) {
+                        return nestedUrl;
+                    }
+                }
+            }
+
+            return undefined;
+        };
+
+        const loadCitationLinks = async () => {
+            if (!parsedAnswer.citations.length) {
+                if (isActive) {
+                    setCitationLinks({});
+                }
+                return;
+            }
+
+            const entries = await Promise.all(
+                parsedAnswer.citations.map(async citation => {
+                    const normalizedCitation = citation.split("#")[0]?.trim().toLowerCase();
+                    if (!normalizedCitation?.endsWith(".json")) {
+                        return undefined;
+                    }
+
+                    try {
+                        const response = await fetch(getCitationFilePath(citation), { signal: abortController.signal });
+                        if (!response.ok) {
+                            return undefined;
+                        }
+
+                        let jsonData: any;
+
+                        try {
+                            jsonData = await response.clone().json();
+                        } catch (err) {
+                            const text = await response.text();
+                            jsonData = JSON.parse(text);
+                        }
+
+                        const url = extractUrlFromJson(jsonData);
+                        if (url) {
+                            return [citation, url] as const;
+                        }
+                    } catch (err: any) {
+                        if (err?.name === "AbortError") {
+                            return undefined;
+                        }
+                    }
+
+                    return undefined;
+                })
+            );
+
+            if (!isActive) {
+                return;
+            }
+
+            const links: Record<string, string> = {};
+            entries.forEach(entry => {
+                if (entry) {
+                    const [citation, url] = entry;
+                    links[citation] = url;
+                }
+            });
+
+            setCitationLinks(links);
+        };
+
+        loadCitationLinks();
+
+        return () => {
+            isActive = false;
+            abortController.abort();
+        };
+    }, [parsedAnswer.citations]);
 
     const handleCopy = () => {
         // Single replace to remove all HTML tags to remove the citations
@@ -109,12 +239,19 @@ export const Answer = ({
                     <Stack horizontal wrap tokens={{ childrenGap: 5 }}>
                         <span className={styles.citationLearnMore}>{t("citationWithColon")}</span>
                         {parsedAnswer.citations.map((x, i) => {
-                            const path = getCitationFilePath(x);
-                            // Strip out the image filename in parentheses if it exists
-                            const strippedPath = path.replace(/\([^)]*\)$/, "");
+                            const displayNumber = i + 1;
+                            const citationPath = getCitationFilePath(x);
+                            const strippedPath = citationPath.replace(/\([^)]*\)$/, "");
+                            const displayText = citationLinks[x] ?? x;
+
                             return (
-                                <a key={i} className={styles.citation} title={x} onClick={() => onCitationClicked(strippedPath)}>
-                                    {`${++i}. ${x}`}
+                                <a
+                                    key={`${x}-${i}`}
+                                    className={styles.citation}
+                                    title={displayText}
+                                    onClick={() => handleCitationClick(x, strippedPath)}
+                                >
+                                    {`${displayNumber}. ${displayText}`}
                                 </a>
                             );
                         })}

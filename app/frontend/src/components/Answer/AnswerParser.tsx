@@ -6,7 +6,11 @@ type HtmlParsedAnswer = {
     citations: string[];
 };
 
-export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean, onCitationClicked: (citationFilePath: string) => void): HtmlParsedAnswer {
+export function parseAnswerToHtml(
+    answer: ChatAppResponse,
+    isStreaming: boolean,
+    onCitationClicked: (citation: string, citationFilePath: string) => void
+): HtmlParsedAnswer {
     const possibleCitations = answer.context.data_points.citations || [];
     const citations: string[] = [];
 
@@ -54,7 +58,7 @@ export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean,
             const path = getCitationFilePath(part);
 
             return renderToStaticMarkup(
-                <a className="supContainer" title={part} onClick={() => onCitationClicked(path)}>
+                <a className="supContainer" title={part} onClick={() => onCitationClicked(part, path)}>
                     <sup>{citationIndex}</sup>
                 </a>
             );
