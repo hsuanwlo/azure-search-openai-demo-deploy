@@ -63,6 +63,10 @@ export const Answer = ({
         () => parseAnswerToHtml(answer, isStreaming, handleCitationClick),
         [answer, handleCitationClick, isStreaming]
     );
+    const citationsSignature = useMemo(
+        () => parsedAnswer.citations.join("||"),
+        [parsedAnswer.citations]
+    );
     const { t } = useTranslation();
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
@@ -114,7 +118,9 @@ export const Answer = ({
         const loadCitationLinks = async () => {
             if (!parsedAnswer.citations.length) {
                 if (isActive) {
-                    setCitationLinks({});
+                    setCitationLinks(prev =>
+                        Object.keys(prev).length ? ({} as Record<string, string>) : prev
+                    );
                 }
                 return;
             }
@@ -167,7 +173,22 @@ export const Answer = ({
                 }
             });
 
-            setCitationLinks(links);
+            setCitationLinks(prev => {
+                const prevKeys = Object.keys(prev);
+                const nextKeys = Object.keys(links);
+
+                if (prevKeys.length !== nextKeys.length) {
+                    return links;
+                }
+
+                for (const key of nextKeys) {
+                    if (prev[key] !== links[key]) {
+                        return links;
+                    }
+                }
+
+                return prev;
+            });
         };
 
         loadCitationLinks();
@@ -176,7 +197,7 @@ export const Answer = ({
             isActive = false;
             abortController.abort();
         };
-    }, [parsedAnswer.citations]);
+    }, [citationsSignature]);
 
     const handleCopy = () => {
         // Single replace to remove all HTML tags to remove the citations
