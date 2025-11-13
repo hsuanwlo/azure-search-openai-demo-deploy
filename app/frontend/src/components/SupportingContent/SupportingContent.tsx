@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { getCitationFilePath } from "../../api";
 import { parseSupportingContentItem } from "./SupportingContentParser";
 
 import styles from "./SupportingContent.module.css";
@@ -15,13 +16,13 @@ export const SupportingContent = ({ supportingContent }: Props) => {
     const [citationLinks, setCitationLinks] = useState<Record<string, string | null>>({});
 
     useEffect(() => {
-        const controller = new AbortController();
+        let isMounted = true;
 
         const loadCitationLinks = async () => {
             const citationFiles = Array.from(
                 new Set(
                     parsedTextItems
-                        .map(item => item.title)
+                        .map(item => item.title.trim())
                         .filter(title => title.toLowerCase().endsWith(".json"))
                 )
             );
@@ -36,23 +37,21 @@ export const SupportingContent = ({ supportingContent }: Props) => {
             const entries = await Promise.all(
                 citationFiles.map(async fileName => {
                     try {
-                        const response = await fetch(fileName, { signal: controller.signal });
+                        const response = await fetch(getCitationFilePath(fileName));
                         if (!response.ok) {
-                            throw new Error(`Failed to fetch citation file: ${response.status}`);
+                            return [fileName, null] as const;
                         }
 
                         const { url } = (await response.json()) as { url: string };
-                        return [fileName, url] as const;
+                        return [fileName, url.trim()] as const;
                     } catch (error) {
-                        if ((error as Error).name !== "AbortError") {
-                            console.error(`Unable to load citation link for ${fileName}`, error);
-                        }
+                        console.error(`Unable to load citation link for ${fileName}`, error);
                         return [fileName, null] as const;
                     }
                 })
             );
 
-            if (!controller.signal.aborted) {
+            if (isMounted) {
                 setCitationLinks(Object.fromEntries(entries));
             }
         };
@@ -60,23 +59,26 @@ export const SupportingContent = ({ supportingContent }: Props) => {
         loadCitationLinks();
 
         return () => {
-            controller.abort();
+            isMounted = false;
         };
     }, [parsedTextItems]);
 
     return (
         <ul className={styles.supportingContentNavList}>
             {parsedTextItems.map((parsed, ind) => {
-                const citationUrl = citationLinks[parsed.title];
+                const title = parsed.title.trim();
+                const citationUrl = citationLinks[title];
                 return (
                     <li className={styles.supportingContentItem} key={`supporting-content-text-${ind}`}>
                         <h4 className={styles.supportingContentItemHeader}>
-                            {citationUrl ? (
+                            {citationUrl === null ? (
+                                <span>{parsed.title} (link unavailable)</span>
+                            ) : citationUrl ? (
                                 <a href={citationUrl} target="_blank" rel="noopener noreferrer">
                                     {parsed.title}
                                 </a>
                             ) : (
-                                parsed.title
+                                <span>{parsed.title} (loading link…)</span>
                             )}
                         </h4>
                         <p className={styles.supportingContentItemText} dangerouslySetInnerHTML={{ __html: parsed.content }} />
