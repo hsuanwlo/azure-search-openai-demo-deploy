@@ -5,37 +5,47 @@ import { parseSupportingContentItem } from "./SupportingContentParser";
 
 import styles from "./SupportingContent.module.css";
 
+interface DataPointsContent {
+    text: string[];
+    images?: string[];
+    citations?: string[];
+}
+
 interface Props {
-    supportingContent: string[] | { text: string[]; images?: string[] };
+    supportingContent: string[] | DataPointsContent;
 }
 
 export const SupportingContent = ({ supportingContent }: Props) => {
     const textItems = Array.isArray(supportingContent) ? supportingContent : supportingContent.text;
     const imageItems = !Array.isArray(supportingContent) ? supportingContent?.images : [];
+    const citationFileNames = useMemo<string[]>(() => {
+        if (Array.isArray(supportingContent)) {
+            return [];
+        }
+
+        const citations = supportingContent?.citations ?? [];
+        const trimmedJsonFiles = citations
+            .map(citation => citation.trim())
+            .filter(Boolean)
+            .filter(citation => citation.toLowerCase().endsWith(".json"));
+
+        return Array.from(new Set(trimmedJsonFiles));
+    }, [supportingContent]);
     const parsedTextItems = useMemo(() => textItems.map(item => parseSupportingContentItem(item)), [textItems]);
     const [citationLinks, setCitationLinks] = useState<Record<string, string | null>>({});
 
     useEffect(() => {
-        let isMounted = true;
+        if (!citationFileNames.length) {
+            setCitationLinks({});
+            return;
+        }
+
+        let isCancelled = false;
+        setCitationLinks({});
 
         const loadCitationLinks = async () => {
-            const citationFiles = Array.from(
-                new Set(
-                    parsedTextItems
-                        .map(item => item.title.trim())
-                        .filter(title => title.toLowerCase().endsWith(".json"))
-                )
-            );
-
-            if (!citationFiles.length) {
-                setCitationLinks({});
-                return;
-            }
-
-            setCitationLinks({});
-
             const entries = await Promise.all(
-                citationFiles.map(async fileName => {
+                citationFileNames.map(async fileName => {
                     try {
                         const response = await fetch(getCitationFilePath(fileName));
                         if (!response.ok) {
@@ -51,7 +61,7 @@ export const SupportingContent = ({ supportingContent }: Props) => {
                 })
             );
 
-            if (isMounted) {
+            if (!isCancelled) {
                 setCitationLinks(Object.fromEntries(entries));
             }
         };
@@ -59,26 +69,31 @@ export const SupportingContent = ({ supportingContent }: Props) => {
         loadCitationLinks();
 
         return () => {
-            isMounted = false;
+            isCancelled = true;
         };
-    }, [parsedTextItems]);
+    }, [citationFileNames]);
 
     return (
         <ul className={styles.supportingContentNavList}>
             {parsedTextItems.map((parsed, ind) => {
                 const title = parsed.title.trim();
                 const citationUrl = citationLinks[title];
+                const isJsonCitation = citationFileNames.includes(title);
                 return (
                     <li className={styles.supportingContentItem} key={`supporting-content-text-${ind}`}>
                         <h4 className={styles.supportingContentItemHeader}>
-                            {citationUrl === null ? (
-                                <span>{parsed.title} (link unavailable)</span>
-                            ) : citationUrl ? (
-                                <a href={citationUrl} target="_blank" rel="noopener noreferrer">
-                                    {parsed.title}
-                                </a>
+                            {isJsonCitation ? (
+                                citationUrl === undefined ? (
+                                    <span>{parsed.title} (loading link…)</span>
+                                ) : citationUrl === null ? (
+                                    <span>{parsed.title} (link unavailable)</span>
+                                ) : (
+                                    <a href={citationUrl} target="_blank" rel="noopener noreferrer">
+                                        {parsed.title}
+                                    </a>
+                                )
                             ) : (
-                                <span>{parsed.title} (loading link…)</span>
+                                <span>{parsed.title}</span>
                             )}
                         </h4>
                         <p className={styles.supportingContentItemText} dangerouslySetInnerHTML={{ __html: parsed.content }} />
