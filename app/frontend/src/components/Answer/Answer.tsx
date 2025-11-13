@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Stack, IconButton } from "@fluentui/react";
 import { useTranslation } from "react-i18next";
 import DOMPurify from "dompurify";
@@ -47,6 +47,77 @@ export const Answer = ({
     const { t } = useTranslation();
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
+    const [citationUrls, setCitationUrls] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        if (!parsedAnswer.citations.length || isStreaming) {
+            setCitationUrls({});
+            return;
+        }
+
+        const abortController = new AbortController();
+        let isActive = true;
+
+        const fetchCitationUrls = async () => {
+            const entries = await Promise.all(
+                parsedAnswer.citations.map(async citation => {
+                    const path = getCitationFilePath(citation);
+                    const strippedPath = path.replace(/\([^)]*\)$/, "");
+
+                    try {
+                        const response = await fetch(strippedPath, { signal: abortController.signal });
+                        if (!response.ok) {
+                            return [citation, ""] as const;
+                        }
+
+                        const contentType = response.headers.get("content-type") || "";
+                        if (contentType.includes("application/json")) {
+                            const data = await response.json();
+                            if (data?.url && typeof data.url === "string") {
+                                return [citation, data.url] as const;
+                            }
+                        } else {
+                            const text = await response.text();
+                            try {
+                                const data = JSON.parse(text);
+                                if (data?.url && typeof data.url === "string") {
+                                    return [citation, data.url] as const;
+                                }
+                            } catch (error) {
+                                console.warn("Unable to parse citation JSON", error);
+                            }
+                        }
+                    } catch (error) {
+                        if ((error as DOMException).name === "AbortError") {
+                            return [citation, ""] as const;
+                        }
+                        console.warn("Failed to fetch citation", error);
+                    }
+
+                    return [citation, ""] as const;
+                })
+            );
+
+            if (!isActive) {
+                return;
+            }
+
+            const urlMap: Record<string, string> = {};
+            entries.forEach(([citation, url]) => {
+                if (url) {
+                    urlMap[citation] = url;
+                }
+            });
+            setCitationUrls(urlMap);
+        };
+
+        fetchCitationUrls();
+
+        return () => {
+            isActive = false;
+            abortController.abort();
+        };
+    }, [isStreaming, parsedAnswer.citations]);
 
     const handleCopy = () => {
         // Single replace to remove all HTML tags to remove the citations
@@ -112,9 +183,25 @@ export const Answer = ({
                             const path = getCitationFilePath(x);
                             // Strip out the image filename in parentheses if it exists
                             const strippedPath = path.replace(/\([^)]*\)$/, "");
+                            const citationUrl = citationUrls[x];
+                            const displayIndex = i + 1;
+                            if (citationUrl) {
+                                return (
+                                    <a
+                                        key={i}
+                                        className={styles.citation}
+                                        title={citationUrl}
+                                        href={citationUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        {`${displayIndex}. ${citationUrl}`}
+                                    </a>
+                                );
+                            }
                             return (
                                 <a key={i} className={styles.citation} title={x} onClick={() => onCitationClicked(strippedPath)}>
-                                    {`${++i}. ${x}`}
+                                    {`${displayIndex}. ${x}`}
                                 </a>
                             );
                         })}
