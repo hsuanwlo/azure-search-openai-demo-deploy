@@ -13,6 +13,18 @@ import { AnswerIcon } from "./AnswerIcon";
 import { SpeechOutputBrowser } from "./SpeechOutputBrowser";
 import { SpeechOutputAzure } from "./SpeechOutputAzure";
 
+const stripTrailingParenthetical = (value: string): string => {
+    const trimmedValue = value.trimEnd();
+    const lastOpenIndex = trimmedValue.lastIndexOf("(");
+    const lastCloseIndex = trimmedValue.lastIndexOf(")");
+
+    if (lastCloseIndex === trimmedValue.length - 1 && lastOpenIndex !== -1 && lastOpenIndex < lastCloseIndex) {
+        return trimmedValue.slice(0, lastOpenIndex).trimEnd();
+    }
+
+    return trimmedValue;
+};
+
 interface Props {
     answer: ChatAppResponse;
     index: number;
@@ -60,42 +72,27 @@ export const Answer = ({
 
         const fetchCitationUrls = async () => {
             const entries = await Promise.all(
-                parsedAnswer.citations.map(async citation => {
-                    const path = getCitationFilePath(citation);
-                    const strippedPath = path.replace(/\([^)]*\)$/, "");
+                parsedAnswer.citations
+                    .filter(citation => citation.toLowerCase().endsWith(".json"))
+                    .map(async citation => {
+                        const path = stripTrailingParenthetical(getCitationFilePath(citation));
 
-                    try {
-                        const response = await fetch(strippedPath, { signal: abortController.signal });
-                        if (!response.ok) {
+                        try {
+                            const response = await fetch(path, { signal: abortController.signal });
+                            if (!response.ok) {
+                                return [citation, ""] as const;
+                            }
+
+                            const data: { url?: string } = await response.json();
+                            const url = typeof data.url === "string" ? data.url.trim() : "";
+                            return [citation, url] as const;
+                        } catch (error) {
+                            if ((error as DOMException).name !== "AbortError") {
+                                console.warn("Failed to fetch citation", error);
+                            }
                             return [citation, ""] as const;
                         }
-
-                        const contentType = response.headers.get("content-type") || "";
-                        if (contentType.includes("application/json")) {
-                            const data = await response.json();
-                            if (data?.url && typeof data.url === "string") {
-                                return [citation, data.url] as const;
-                            }
-                        } else {
-                            const text = await response.text();
-                            try {
-                                const data = JSON.parse(text);
-                                if (data?.url && typeof data.url === "string") {
-                                    return [citation, data.url] as const;
-                                }
-                            } catch (error) {
-                                console.warn("Unable to parse citation JSON", error);
-                            }
-                        }
-                    } catch (error) {
-                        if ((error as DOMException).name === "AbortError") {
-                            return [citation, ""] as const;
-                        }
-                        console.warn("Failed to fetch citation", error);
-                    }
-
-                    return [citation, ""] as const;
-                })
+                    })
             );
 
             if (!isActive) {
@@ -180,9 +177,7 @@ export const Answer = ({
                     <Stack horizontal wrap tokens={{ childrenGap: 5 }}>
                         <span className={styles.citationLearnMore}>{t("citationWithColon")}</span>
                         {parsedAnswer.citations.map((x, i) => {
-                            const path = getCitationFilePath(x);
-                            // Strip out the image filename in parentheses if it exists
-                            const strippedPath = path.replace(/\([^)]*\)$/, "");
+                            const strippedPath = stripTrailingParenthetical(getCitationFilePath(x));
                             const citationUrl = citationUrls[x];
                             const displayIndex = i + 1;
                             if (citationUrl) {
