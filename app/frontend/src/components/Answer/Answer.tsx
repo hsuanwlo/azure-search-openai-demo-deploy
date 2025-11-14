@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback, MouseEvent, useRef } from "react";
 import { Stack, IconButton } from "@fluentui/react";
 import { useTranslation } from "react-i18next";
 import DOMPurify from "dompurify";
@@ -7,11 +7,13 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 
 import styles from "./Answer.module.css";
-import { ChatAppResponse, getCitationFilePath, SpeechConfig } from "../../api";
+import { ChatAppResponse, getCitationFilePath, SpeechConfig, getHeaders } from "../../api";
 import { parseAnswerToHtml } from "./AnswerParser";
 import { AnswerIcon } from "./AnswerIcon";
 import { SpeechOutputBrowser } from "./SpeechOutputBrowser";
 import { SpeechOutputAzure } from "./SpeechOutputAzure";
+import { useMsal } from "@azure/msal-react";
+import { useLogin, getToken } from "../../authConfig";
 
 interface Props {
     answer: ChatAppResponse;
@@ -42,11 +44,129 @@ export const Answer = ({
     showSpeechOutputAzure,
     showSpeechOutputBrowser
 }: Props) => {
+    const client = useLogin ? useMsal().instance : undefined;
     const followupQuestions = answer.context?.followup_questions;
-    const parsedAnswer = useMemo(() => parseAnswerToHtml(answer, isStreaming, onCitationClicked), [answer]);
+    const [citationTargets, setCitationTargets] = useState<Record<string, string>>({});
+    const citationKeyRef = useRef<string>("");
+    const handleCitationSupClick = useCallback(
+        (filePath: string) => {
+            const resolvedUrl = citationTargets[filePath];
+            if (resolvedUrl) {
+                window.open(resolvedUrl, "_blank", "noopener,noreferrer");
+                return;
+            }
+
+            onCitationClicked(filePath);
+        },
+        [citationTargets, onCitationClicked]
+    );
+    const parsedAnswer = useMemo(
+        () => parseAnswerToHtml(answer, isStreaming, handleCitationSupClick),
+        [answer, isStreaming, handleCitationSupClick]
+    );
+    const citationsWithPaths = useMemo(
+        () =>
+            parsedAnswer.citations.map(citation => ({
+                citation,
+                path: getCitationFilePath(citation)
+            })),
+        [parsedAnswer.citations]
+    );
     const { t } = useTranslation();
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        let isActive = true;
+
+        const resetCitationTargets = () => {
+            setCitationTargets(previous => {
+                if (Object.keys(previous).length === 0) {
+                    return previous;
+                }
+                return {};
+            });
+        };
+
+        const resolveCitationUrls = async () => {
+            const currentKey = citationsWithPaths.map(({ path }) => path).join("|");
+            if (currentKey === citationKeyRef.current && currentKey !== "") {
+                return;
+            }
+
+            if (!citationsWithPaths.length) {
+                if (isActive) {
+                    resetCitationTargets();
+                }
+                citationKeyRef.current = currentKey;
+                return;
+            }
+
+            const jsonCitations = citationsWithPaths.filter(({ path }) => path.toLowerCase().endsWith(".json"));
+            if (!jsonCitations.length) {
+                if (isActive) {
+                    resetCitationTargets();
+                }
+                citationKeyRef.current = currentKey;
+                return;
+            }
+
+            try {
+                const token = client ? await getToken(client) : undefined;
+                const headers = await getHeaders(token);
+                const resolvedTargets: Record<string, string> = {};
+
+                await Promise.all(
+                    jsonCitations.map(async ({ path }) => {
+                        try {
+                            const response = await fetch(path, { headers });
+                            if (!response.ok) {
+                                return;
+                            }
+
+                            const citationDetails = await response.json();
+                            const resolvedUrl = citationDetails?.url;
+                            if (typeof resolvedUrl === "string" && resolvedUrl.length > 0) {
+                                resolvedTargets[path] = resolvedUrl;
+                            }
+                        } catch (error) {
+                            console.warn(`Failed to resolve citation URL for ${path}`, error);
+                        }
+                    })
+                );
+
+                if (isActive) {
+                    setCitationTargets(previous => {
+                        const previousKeys = Object.keys(previous);
+                        const nextKeys = Object.keys(resolvedTargets);
+                        if (previousKeys.length !== nextKeys.length) {
+                            return resolvedTargets;
+                        }
+
+                        const hasChanged = previousKeys.some(key => previous[key] !== resolvedTargets[key]);
+                        if (hasChanged) {
+                            return resolvedTargets;
+                        }
+
+                        return previous;
+                    });
+                    citationKeyRef.current = currentKey;
+                }
+            } catch (error) {
+                console.warn("Unable to resolve citation URLs", error);
+                if (isActive) {
+                    resetCitationTargets();
+                }
+                citationKeyRef.current = currentKey;
+            }
+        };
+
+        resolveCitationUrls();
+
+        return () => {
+            isActive = false;
+        };
+    }, [citationsWithPaths, client]);
 
     const handleCopy = () => {
         // Single replace to remove all HTML tags to remove the citations
@@ -108,13 +228,30 @@ export const Answer = ({
                 <Stack.Item>
                     <Stack horizontal wrap tokens={{ childrenGap: 5 }}>
                         <span className={styles.citationLearnMore}>{t("citationWithColon")}</span>
-                        {parsedAnswer.citations.map((x, i) => {
-                            const path = getCitationFilePath(x);
-                            // Strip out the image filename in parentheses if it exists
-                            const strippedPath = path.replace(/\([^)]*\)$/, "");
+                        {citationsWithPaths.map(({ citation, path }, index) => {
+                            const resolvedUrl = citationTargets[path];
+                            const displayText = resolvedUrl ?? citation;
+                            const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+                                event.preventDefault();
+                                if (resolvedUrl) {
+                                    window.open(resolvedUrl, "_blank", "noopener,noreferrer");
+                                    return;
+                                }
+
+                                onCitationClicked(path);
+                            };
+
                             return (
-                                <a key={i} className={styles.citation} title={x} onClick={() => onCitationClicked(strippedPath)}>
-                                    {`${++i}. ${x}`}
+                                <a
+                                    key={`${citation}-${index}`}
+                                    className={styles.citation}
+                                    title={displayText}
+                                    href={resolvedUrl ?? "#"}
+                                    target={resolvedUrl ? "_blank" : undefined}
+                                    rel={resolvedUrl ? "noreferrer" : undefined}
+                                    onClick={handleClick}
+                                >
+                                    {`${index + 1}. ${displayText}`}
                                 </a>
                             );
                         })}

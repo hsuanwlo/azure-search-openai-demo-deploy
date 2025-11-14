@@ -79,8 +79,16 @@ export async function getSpeechApi(text: string): Promise<string | null> {
 }
 
 export function getCitationFilePath(citation: string): string {
-    // If there are parentheses at end of citation, remove part in parentheses
-    const cleanedCitation = citation.replace(/\s*\(.*?\)\s*$/, "").trim();
+    const trimmedCitation = citation.trim();
+    let cleanedCitation = trimmedCitation;
+
+    if (trimmedCitation.endsWith(")")) {
+        const lastOpeningParenthesisIndex = trimmedCitation.lastIndexOf("(");
+        if (lastOpeningParenthesisIndex > -1) {
+            cleanedCitation = trimmedCitation.slice(0, lastOpeningParenthesisIndex).trimEnd();
+        }
+    }
+
     return `${BACKEND_URI}/content/${cleanedCitation}`;
 }
 
