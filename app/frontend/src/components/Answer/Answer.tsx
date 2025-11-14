@@ -47,10 +47,11 @@ export const Answer = ({
     const client = useLogin ? useMsal().instance : undefined;
     const followupQuestions = answer.context?.followup_questions;
     const [citationTargets, setCitationTargets] = useState<Record<string, string>>({});
+    const citationTargetsRef = useRef<Record<string, string>>({});
     const citationKeyRef = useRef<string>("");
     const handleCitationSupClick = useCallback(
         (filePath: string) => {
-            const resolvedUrl = citationTargets[filePath];
+            const resolvedUrl = citationTargetsRef.current[filePath];
             if (resolvedUrl) {
                 window.open(resolvedUrl, "_blank", "noopener,noreferrer");
                 return;
@@ -58,7 +59,7 @@ export const Answer = ({
 
             onCitationClicked(filePath);
         },
-        [citationTargets, onCitationClicked]
+        [onCitationClicked]
     );
     const parsedAnswer = useMemo(
         () => parseAnswerToHtml(answer, isStreaming, handleCitationSupClick),
@@ -80,12 +81,10 @@ export const Answer = ({
         let isActive = true;
 
         const resetCitationTargets = () => {
-            setCitationTargets(previous => {
-                if (Object.keys(previous).length === 0) {
-                    return previous;
-                }
-                return {};
-            });
+            if (Object.keys(citationTargetsRef.current).length > 0) {
+                citationTargetsRef.current = {};
+                setCitationTargets({});
+            }
         };
 
         const resolveCitationUrls = async () => {
@@ -136,20 +135,17 @@ export const Answer = ({
                 );
 
                 if (isActive) {
-                    setCitationTargets(previous => {
-                        const previousKeys = Object.keys(previous);
-                        const nextKeys = Object.keys(resolvedTargets);
-                        if (previousKeys.length !== nextKeys.length) {
-                            return resolvedTargets;
-                        }
+                    const previous = citationTargetsRef.current;
+                    const previousKeys = Object.keys(previous);
+                    const nextKeys = Object.keys(resolvedTargets);
+                    const hasDifferentLength = previousKeys.length !== nextKeys.length;
+                    const hasChanged =
+                        hasDifferentLength || previousKeys.some(key => previous[key] !== resolvedTargets[key]);
 
-                        const hasChanged = previousKeys.some(key => previous[key] !== resolvedTargets[key]);
-                        if (hasChanged) {
-                            return resolvedTargets;
-                        }
-
-                        return previous;
-                    });
+                    if (hasChanged) {
+                        citationTargetsRef.current = resolvedTargets;
+                        setCitationTargets(resolvedTargets);
+                    }
                     citationKeyRef.current = currentKey;
                 }
             } catch (error) {
