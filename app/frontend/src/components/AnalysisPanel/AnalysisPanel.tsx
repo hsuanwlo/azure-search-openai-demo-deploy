@@ -27,47 +27,99 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
     const isDisabledThoughtProcessTab: boolean = !answer.context.thoughts;
     const isDisabledSupportingContentTab: boolean = !answer.context.data_points;
     const isDisabledCitationTab: boolean = !activeCitation;
-    const [citation, setCitation] = useState("");
+    const [citationObjectUrl, setCitationObjectUrl] = useState("");
+    const [citationExternalUrl, setCitationExternalUrl] = useState<string | undefined>(undefined);
 
     const client = useLogin ? useMsal().instance : undefined;
     const { t } = useTranslation();
+    const getFileExtension = (path: string) => {
+        const withoutQuery = path.split("?")[0];
+        const withoutHash = withoutQuery.split("#")[0];
+        return withoutHash.split(".").pop()?.toLowerCase();
+    };
 
-    const fetchCitation = async () => {
-        const token = client ? await getToken(client) : undefined;
-        if (activeCitation) {
+    useEffect(() => {
+        const fetchCitation = async () => {
+            const token = client ? await getToken(client) : undefined;
+
+            if (!activeCitation) {
+                setCitationExternalUrl(undefined);
+                setCitationObjectUrl("");
+                return;
+            }
+
             // Get hash from the URL as it may contain #page=N
             // which helps browser PDF renderer jump to correct page N
-            const originalHash = activeCitation.indexOf("#") ? activeCitation.split("#")[1] : "";
+            const hashIndex = activeCitation.indexOf("#");
+            const originalHash = hashIndex !== -1 ? activeCitation.substring(hashIndex + 1) : "";
             const response = await fetch(activeCitation, {
                 method: "GET",
                 headers: await getHeaders(token)
             });
+            const contentType = response.headers.get("Content-Type")?.toLowerCase();
+            const fileExtension = getFileExtension(activeCitation);
+            const isJsonCitation =
+                fileExtension === "json" || (contentType && contentType.includes("application/json"));
+
+            setCitationExternalUrl(undefined);
+            setCitationObjectUrl("");
+
+            if (isJsonCitation) {
+                try {
+                    const citationText = await response.text();
+                    const citationJson = JSON.parse(citationText);
+                    if (citationJson && typeof citationJson.url === "string") {
+                        setCitationExternalUrl(citationJson.url);
+                    }
+                } catch (error) {
+                    console.error("Failed to parse JSON citation", error);
+                }
+                return;
+            }
+
             const citationContent = await response.blob();
-            let citationObjectUrl = URL.createObjectURL(citationContent);
+            let citationUrl = URL.createObjectURL(citationContent);
             // Add hash back to the new blob URL
             if (originalHash) {
-                citationObjectUrl += "#" + originalHash;
+                citationUrl += "#" + originalHash;
             }
-            setCitation(citationObjectUrl);
-        }
-    };
-    useEffect(() => {
+            setCitationObjectUrl(citationUrl);
+        };
+
         fetchCitation();
-    }, []);
+    }, [activeCitation, client]);
+
+    useEffect(() => {
+        return () => {
+            if (citationObjectUrl) {
+                URL.revokeObjectURL(citationObjectUrl);
+            }
+        };
+    }, [citationObjectUrl]);
 
     const renderFileViewer = () => {
         if (!activeCitation) {
             return null;
         }
 
-        const fileExtension = activeCitation.split(".").pop()?.toLowerCase();
+        const fileExtension = getFileExtension(activeCitation);
+        if (fileExtension === "json" || citationExternalUrl) {
+            return citationExternalUrl ? (
+                <a href={citationExternalUrl} target="_blank" rel="noopener noreferrer">
+                    {citationExternalUrl}
+                </a>
+            ) : (
+                <div className={styles.citationFallback}>{t("labels.citationUrlUnavailable", "Citation link unavailable.")}</div>
+            );
+        }
+
         switch (fileExtension) {
             case "png":
-                return <img src={citation} className={styles.citationImg} alt="Citation Image" />;
+                return <img src={citationObjectUrl} className={styles.citationImg} alt="Citation Image" />;
             case "md":
                 return <MarkdownViewer src={activeCitation} />;
             default:
-                return <iframe title="Citation" src={citation} width="100%" height={citationHeight} />;
+                return <iframe title="Citation" src={citationObjectUrl} width="100%" height={citationHeight} />;
         }
     };
 
