@@ -89,6 +89,11 @@
     object-fit: contain;
 }
 
+.citationFallback {
+    padding: 1rem 0;
+    color: #605e5c;
+}
+
 .header {
     color: #123bb6;
     position: relative;
