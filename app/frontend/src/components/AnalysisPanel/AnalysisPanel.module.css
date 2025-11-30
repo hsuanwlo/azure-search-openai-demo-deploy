@@ -94,6 +94,14 @@
     color: #605e5c;
 }
 
+.citationJsonContent {
+    padding: 1rem 0;
+    color: #010207;
+    white-space: pre-line;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
 .header {
     color: #123bb6;
     position: relative;

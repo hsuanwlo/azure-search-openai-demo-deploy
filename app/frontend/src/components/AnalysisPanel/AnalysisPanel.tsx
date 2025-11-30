@@ -29,6 +29,7 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
     const isDisabledCitationTab: boolean = !activeCitation;
     const [citationObjectUrl, setCitationObjectUrl] = useState("");
     const [citationExternalUrl, setCitationExternalUrl] = useState<string | undefined>(undefined);
+    const [citationJsonContent, setCitationJsonContent] = useState<string | undefined>(undefined);
 
     const client = useLogin ? useMsal().instance : undefined;
     const { t } = useTranslation();
@@ -36,6 +37,45 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
         const withoutQuery = path.split("?")[0];
         const withoutHash = withoutQuery.split("#")[0];
         return withoutHash.split(".").pop()?.toLowerCase();
+    };
+    const stripHtmlTags = (value: string) => value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    const humanizeKey = (key: string) =>
+        key
+            .replace(/[_-]+/g, " ")
+            .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+            .replace(/\s+/g, " ")
+            .trim();
+    const formatJsonForDisplay = (data: unknown): string => {
+        const buildText = (value: unknown): string => {
+            if (value === null || value === undefined) {
+                return "";
+            }
+            if (typeof value === "string") {
+                return stripHtmlTags(value);
+            }
+            if (typeof value === "number" || typeof value === "boolean") {
+                return String(value);
+            }
+            if (Array.isArray(value)) {
+                return value.map(item => buildText(item)).filter(Boolean).join("\n\n");
+            }
+            if (typeof value === "object") {
+                return Object.entries(value as Record<string, unknown>)
+                    .map(([key, val]) => {
+                        const nestedValue = buildText(val);
+                        if (!nestedValue) {
+                            return "";
+                        }
+                        const readableKey = humanizeKey(key);
+                        return readableKey ? `${readableKey}: ${nestedValue}` : nestedValue;
+                    })
+                    .filter(Boolean)
+                    .join("\n");
+            }
+            return "";
+        };
+
+        return buildText(data).replace(/\n{3,}/g, "\n\n").trim();
     };
 
     useEffect(() => {
@@ -45,6 +85,7 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             if (!activeCitation) {
                 setCitationExternalUrl(undefined);
                 setCitationObjectUrl("");
+                setCitationJsonContent(undefined);
                 return;
             }
 
@@ -63,6 +104,7 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
 
             setCitationExternalUrl(undefined);
             setCitationObjectUrl("");
+            setCitationJsonContent(undefined);
 
             if (isJsonCitation) {
                 try {
@@ -70,6 +112,11 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
                     const citationJson = JSON.parse(citationText);
                     if (citationJson && typeof citationJson.url === "string") {
                         setCitationExternalUrl(citationJson.url);
+                    } else {
+                        const readableJson = formatJsonForDisplay(citationJson);
+                        if (readableJson) {
+                            setCitationJsonContent(readableJson);
+                        }
                     }
                 } catch (error) {
                     console.error("Failed to parse JSON citation", error);
@@ -103,11 +150,13 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
         }
 
         const fileExtension = getFileExtension(activeCitation);
-        if (fileExtension === "json" || citationExternalUrl) {
+        if (fileExtension === "json" || citationExternalUrl || citationJsonContent) {
             return citationExternalUrl ? (
                 <a href={citationExternalUrl} target="_blank" rel="noopener noreferrer">
                     {citationExternalUrl}
                 </a>
+            ) : citationJsonContent ? (
+                <div className={styles.citationJsonContent}>{citationJsonContent}</div>
             ) : (
                 <div className={styles.citationFallback}>{t("labels.citationUrlUnavailable", "Citation link unavailable.")}</div>
             );
