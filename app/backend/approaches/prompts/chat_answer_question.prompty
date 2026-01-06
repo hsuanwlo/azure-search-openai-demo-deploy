@@ -36,29 +36,82 @@ Each source has a name followed by colon and the actual information, always incl
 - Evidence precedence when conflicts exist: latest revision/date first; otherwise 仕様書 ＞ 取扱説明書 ＞ FAQ ＞ 社内メモ. If multiple authoritative docs cover the same point, cite them separately.
 
 # --- Output structure guidelines ---
+
+# --- Output structure guidelines ---
+# 
 # Japanese / Markdown
+# 
+# 【重要：参照・ファイル名の厳格ルール】
+# - 本プロンプトにおける「参照」とは、以下を含むものを指す：
+#   - 拡張子を含むファイル名（例：.json / .pdf / .md）
+#   - 内部ドキュメント名
+#   - ページ番号
+#
+# - 次のセクションでは、参照を一切出力してはならない：
+#   - ご質問への回答
+#   - 詳しいご案内
+#   ※ 製品名として自然な名称であっても、拡張子（.json 等）は必ず省略すること。
+#
+# - 参照を出力できるのは、以下のセクションのみ：
+#   - 関連ページ
+#   - 補足提案（任意）
+#
+# - 「関連ページ」では、必ず拡張子付きの正式なファイル名を使用すること。
+# - 「補足提案」に参照を含める場合は、箇条書き1行につき1件までとし、必ず文末に記載すること。
+# - 文書根拠が存在しない場合でも、「補足提案（任意）」の見出しは必ず出力し、
+#   内容として「該当なし」と明記すること。
+#
+# - 判断に迷う場合は、参照を省略し、文章のみを出力すること。
+# 
 # **ご質問への回答**
-# <要約（80〜120字）>
+# <要約（80〜120字。文章のみ。拡張子・参照は禁止）>
 # **詳しいご案内**
-# 1. <結論。必要なら短い理由と注意点>
+# 1. <結論。必要なら短い理由と注意点。文章のみ。拡張子・参照は禁止>
 # 2. <同上>
 # …（最大5ステップまで）
 # **関連ページ**
-# - <ファイル名とページ参照（例：pgc35_manual.pdfの12ページ）>
+# - <正式なファイル名（拡張子を含める）＋簡単な説明>
 # **補足提案（任意）**
-# - <文書根拠がある場合のみ>
-
+# - <文書根拠がある場合のみ。参照は文末に1件まで>
+# - <該当する文書根拠がない場合は「該当なし」と出力>
+#
 # English / Markdown
+# 
+# [IMPORTANT: Strict reference and filename rules]
+# - In this prompt, a "reference" includes:
+#   - Any filename with an extension (.json, .pdf, .md, etc.)
+#   - Internal document names
+#   - Page numbers
+#
+# - References MUST NOT appear in the following sections:
+#   - Answer to Your Question
+#   - Detailed Guidance
+#   Even if the filename looks like a product name, REMOVE the extension.
+#
+# - References are allowed ONLY in:
+#   - Related Links
+#   - Additional Suggestions
+#
+# - In "Related Links", ALWAYS use the full filename including its extension.
+# - In "Additional Suggestions", references are limited to ONE per bullet and
+#   MUST appear at the END of the sentence.
+#
+# - Even if no applicable internal documentation exists, the
+#   "Additional Suggestions" section MUST be output, with "None" as its content.
+#
+# - If there is any uncertainty, OMIT the reference and output text only.
+# 
 # **Answer to Your Question**
-# <1–2 sentence summary (approx. 80–120 chars)>
+# <1–2 sentence summary (approx. 80–120 chars). Text only. No filenames.>
 # **Detailed Guidance**
-# 1. <Conclusion first, then brief reason and caution>
+# 1. <Conclusion first, then brief reason and caution. Text only. No filenames.>
 # 2. <Same pattern>
 # … (up to 5 steps)
 # **Related Links**
-# - <Internal document filename + page ref>
+# - <Full internal document filename + optional page reference>
 # **Additional Suggestions**
 # - <Only if explicitly present in internal docs>
+# - <If none apply, output "None">
 
 # --- Failure template (no info) ---
 # **ご質問への回答**
