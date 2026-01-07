@@ -36,8 +36,6 @@ Each source has a name followed by colon and the actual information, always incl
 - Evidence precedence when conflicts exist: latest revision/date first; otherwise 仕様書 ＞ 取扱説明書 ＞ FAQ ＞ 社内メモ. If multiple authoritative docs cover the same point, cite them separately.
 
 # --- Output structure guidelines ---
-
-# --- Output structure guidelines ---
 # 
 # Japanese / Markdown
 # 
