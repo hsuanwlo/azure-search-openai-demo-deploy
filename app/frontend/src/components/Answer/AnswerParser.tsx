@@ -6,6 +6,26 @@ type HtmlParsedAnswer = {
     citations: string[];
 };
 
+const normalizeCitation = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
+
+const looksLikeFilename = (value: string) => /\.(?:[a-z0-9]{1,8})(?:#page=\d+)?(?:\([^)]*\))?$/i.test(value.trim());
+
+const resolveCitation = (part: string, possibleCitations: string[]) => {
+    const trimmed = part.trim();
+    if (!trimmed) {
+        return null;
+    }
+    const normalizedPart = normalizeCitation(trimmed);
+    const matched = possibleCitations.find(citation => normalizeCitation(citation).startsWith(normalizedPart));
+    if (matched) {
+        return matched;
+    }
+    if (looksLikeFilename(trimmed)) {
+        return trimmed;
+    }
+    return null;
+};
+
 export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean, onCitationClicked: (citationFilePath: string) => void): HtmlParsedAnswer {
     const possibleCitations = answer.context.data_points.citations || [];
     const citations: string[] = [];
@@ -36,25 +56,22 @@ export function parseAnswerToHtml(answer: ChatAppResponse, isStreaming: boolean,
         } else {
             let citationIndex: number;
 
-            const isValidCitation = possibleCitations.some(citation => {
-                return citation.startsWith(part);
-            });
-
-            if (!isValidCitation) {
+            const resolvedCitation = resolveCitation(part, possibleCitations);
+            if (!resolvedCitation) {
                 return `[${part}]`;
             }
 
-            if (citations.indexOf(part) !== -1) {
-                citationIndex = citations.indexOf(part) + 1;
+            if (citations.indexOf(resolvedCitation) !== -1) {
+                citationIndex = citations.indexOf(resolvedCitation) + 1;
             } else {
-                citations.push(part);
+                citations.push(resolvedCitation);
                 citationIndex = citations.length;
             }
 
-            const path = getCitationFilePath(part);
+            const path = getCitationFilePath(resolvedCitation);
 
             return renderToStaticMarkup(
-                <a className="supContainer" title={part} onClick={() => onCitationClicked(path)}>
+                <a className="supContainer" title={resolvedCitation} onClick={() => onCitationClicked(path)}>
                     <sup>{citationIndex}</sup>
                 </a>
             );
